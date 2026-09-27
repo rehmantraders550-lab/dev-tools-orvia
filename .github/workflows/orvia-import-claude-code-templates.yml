@@ -1,0 +1,76 @@
+name: ORVIA Import Claude Code Templates
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/orvia-import-claude-code-templates.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: orvia-import-claude-code-templates
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ORVIA repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Clone pinned upstream source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_DIR="$RUNNER_TEMP/claude-code-templates"
+          git clone --depth 1 https://github.com/davila7/claude-code-templates.git "$SOURCE_DIR"
+          cd "$SOURCE_DIR"
+          git fetch --depth 1 origin 42886b2db9b8021a9830ab3722bd15bcdd5554af
+          git checkout --detach 42886b2db9b8021a9830ab3722bd15bcdd5554af
+          test "$(git rev-parse HEAD)" = "42886b2db9b8021a9830ab3722bd15bcdd5554af"
+
+      - name: Copy source snapshot into ORVIA external namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p external/claude-code-templates
+          rsync -a --exclude='.git/' "$RUNNER_TEMP/claude-code-templates/" external/claude-code-templates/
+
+      - name: Record provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p external
+          cat > external/CLAUDE_CODE_TEMPLATES_SOURCE.md <<'EOF'
+          # Claude Code Templates — ORVIA External Source Record
+
+          - Upstream: https://github.com/davila7/claude-code-templates
+          - Upstream commit: `42886b2db9b8021a9830ab3722bd15bcdd5554af`
+          - Upstream default branch: `main`
+          - Imported into: `rehmantraders550-lab/dev-tools-orvia`
+          - ORVIA branch: `main`
+          - Namespace: `external/claude-code-templates/`
+          - License: MIT; upstream LICENSE and attribution are preserved inside the imported source.
+          - Policy: external source snapshot; do not treat as ORVIA Core until separately reviewed and promoted.
+          EOF
+
+      - name: Commit imported source to ORVIA
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "ORVIA Import Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add external/claude-code-templates external/CLAUDE_CODE_TEMPLATES_SOURCE.md
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+            exit 0
+          fi
+          git commit -m "vendor: import claude-code-templates into ORVIA external source"
+          git push origin HEAD:main
